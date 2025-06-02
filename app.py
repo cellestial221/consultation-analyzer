@@ -296,14 +296,13 @@ class ConsultationAnalyser:
             "was_chunked": False
         }
 
-        # Get Claude analysis
-        with st.spinner(f"Getting AI analysis for {topic_config['description']}..."):
-            analysis_results = self.get_claude_analysis(text, topic_config["prompt"])
-            results["detailed_analysis"] = analysis_results["detailed_analysis"]
-            results["formal_summary"] = analysis_results["formal_summary"]
-            results["chunks_processed"] = analysis_results.get("chunks_processed", 1)
-            results["total_chunks"] = analysis_results.get("total_chunks", 1)
-            results["was_chunked"] = results["total_chunks"] > 1
+        # Get Claude analysis - NO SPINNER HERE to avoid duplicates
+        analysis_results = self.get_claude_analysis(text, topic_config["prompt"])
+        results["detailed_analysis"] = analysis_results["detailed_analysis"]
+        results["formal_summary"] = analysis_results["formal_summary"]
+        results["chunks_processed"] = analysis_results.get("chunks_processed", 1)
+        results["total_chunks"] = analysis_results.get("total_chunks", 1)
+        results["was_chunked"] = results["total_chunks"] > 1
 
         # Search for excerpts (always works on full document)
         excerpts = self.search_text_excerpts(text, page_texts, topic_config["search_terms"])
@@ -445,11 +444,6 @@ def main():
                 page_texts = st.session_state.page_texts
                 st.success(f"✅ Using cached PDF data ({len(pdf_text):,} characters)")
 
-            # Show document preview
-            with st.expander("📖 Document Preview (First 1000 characters)"):
-                preview_text = pdf_text.replace('\n--- PAGE ', '\n**PAGE ').replace(' ---\n', '**\n')
-                st.text(preview_text[:1000] + "..." if len(preview_text) > 1000 else preview_text)
-
             # Analysis section
             st.header("🔍 Analysis Results")
 
@@ -463,52 +457,116 @@ def main():
             tab_names = list(ANALYSIS_TOPICS.keys())
             tabs = st.tabs(tab_names)
 
-            # Check if we need to start/continue analysis
+            # Check analysis status and show control panel
+            completed_topics = [topic for topic, status in st.session_state.analysis_status.items() if status == "completed"]
             pending_topics = [topic for topic, status in st.session_state.analysis_status.items()
                             if status == "pending" and topic not in st.session_state.analysis_results]
 
-            if pending_topics and st.session_state.currently_analysing is None:
-                # Start analyzing the first pending topic
-                current_topic = pending_topics[0]
-                st.session_state.currently_analysing = current_topic
-                st.session_state.analysis_status[current_topic] = "analyzing"
+            # Show analysis control panel
+            if pending_topics or st.session_state.currently_analysing:
+                with st.container():
+                    if st.session_state.currently_analysing:
+                        # Currently analyzing
+                        current_topic = st.session_state.currently_analysing
+                        completed_count = len(completed_topics)
+                        total_count = len(ANALYSIS_TOPICS)
+                        st.info(f"🔄 Analysing topic {completed_count + 1} of {total_count}: {ANALYSIS_TOPICS[current_topic]['description']}")
 
-                # Show progress info
-                completed_count = len([s for s in st.session_state.analysis_status.values() if s == "completed"])
-                total_count = len(ANALYSIS_TOPICS)
-                st.info(f"🔄 Analysing topic {completed_count + 1} of {total_count}: {ANALYSIS_TOPICS[current_topic]['description']}")
+                    elif pending_topics and not st.session_state.currently_analysing:
+                        # Ready to start next topic
+                        next_topic = pending_topics[0]
+                        completed_count = len(completed_topics)
+                        total_count = len(ANALYSIS_TOPICS)
 
-                # Run the analysis
-                with st.spinner(f"Getting AI analysis for {ANALYSIS_TOPICS[current_topic]['description']}..."):
-                    st.session_state.analysis_results[current_topic] = analyser.analyse_topic(
+                        st.success(f"✅ Progress: {completed_count}/{total_count} topics completed")
+
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.info(f"📋 Ready to analyse: **{ANALYSIS_TOPICS[next_topic]['description']}**")
+                        with col2:
+                            if st.button(f"▶️ Start Analysis", key="start_next", type="primary"):
+                                st.session_state.currently_analysing = next_topic
+                                st.session_state.analysis_status[next_topic] = "analyzing"
+                                st.rerun()
+            else:
+                # All analysis complete
+                st.success("🎉 All topics analysed successfully!")
+
+            # Run analysis if there's a current topic
+            if st.session_state.currently_analysing and st.session_state.currently_analysing not in st.session_state.analysis_results:
+                current_topic = st.session_state.currently_analysing
+
+                # Create a dedicated analysis status area
+                analysis_container = st.container()
+                with analysis_container:
+                    st.markdown("### 🤖 AI Analysis in Progress")
+
+                    # Progress steps
+                    progress_col1, progress_col2 = st.columns([1, 3])
+
+                    with progress_col1:
+                        st.markdown("**Current Topic:**")
+                        st.info(f"📋 {ANALYSIS_TOPICS[current_topic]['description']}")
+
+                    with progress_col2:
+                        st.markdown("**Processing Steps:**")
+                        step_placeholder = st.empty()
+
+                        # Show processing steps
+                        step_placeholder.info("🔍 Step 1/3: Extracting relevant content...")
+                        time.sleep(0.5)  # Brief pause for visual feedback
+
+                        step_placeholder.info("🧠 Step 2/3: Getting detailed analysis from Claude AI...")
+
+                # Run the analysis with error handling
+                try:
+                    analysis_result = analyser.analyse_topic(
                         pdf_text, page_texts, ANALYSIS_TOPICS[current_topic]
                     )
 
-                # Mark as completed and clear current
-                st.session_state.analysis_status[current_topic] = "completed"
-                st.session_state.currently_analysing = None
+                    # Update step indicator
+                    step_placeholder.info("📝 Step 3/3: Generating formal summary...")
+                    time.sleep(0.5)  # Brief pause
 
-                # Check if more topics to analyze
-                remaining_pending = [topic for topic, status in st.session_state.analysis_status.items()
-                                   if status == "pending"]
+                    st.session_state.analysis_results[current_topic] = analysis_result
 
-                if remaining_pending:
-                    # More to analyze - rerun to continue
+                    # Show completion
+                    step_placeholder.success("✅ Analysis complete!")
+
+                    # Quick validation
+                    has_analysis = analysis_result.get("detailed_analysis") and "Error" not in analysis_result["detailed_analysis"]
+                    has_summary = analysis_result.get("formal_summary") and "Error" not in analysis_result["formal_summary"]
+
+                    if has_analysis and has_summary:
+                        st.success(f"🎉 Successfully completed analysis for **{ANALYSIS_TOPICS[current_topic]['description']}**")
+                    elif has_analysis or has_summary:
+                        st.warning(f"⚠️ Partial analysis completed for **{ANALYSIS_TOPICS[current_topic]['description']}** - some components may have errors")
+                    else:
+                        st.error(f"❌ Analysis failed for **{ANALYSIS_TOPICS[current_topic]['description']}** - please check your API key and try again")
+
+                    # Mark as completed and clear current
+                    st.session_state.analysis_status[current_topic] = "completed"
+                    st.session_state.currently_analysing = None
+
+                    st.rerun()  # Refresh to show next topic button
+
+                except Exception as e:
+                    step_placeholder.error(f"❌ Analysis failed: {str(e)}")
+                    st.error(f"Failed to analyse {current_topic}. Please check your API key and internet connection.")
+
+                    # Mark as completed with error and continue
+                    st.session_state.analysis_results[current_topic] = {
+                        "detailed_analysis": f"Error during analysis: {str(e)}",
+                        "formal_summary": f"Error during analysis: {str(e)}",
+                        "excerpts": [],
+                        "found_terms": [],
+                        "chunks_processed": 0,
+                        "total_chunks": 0,
+                        "was_chunked": False
+                    }
+                    st.session_state.analysis_status[current_topic] = "completed"
+                    st.session_state.currently_analysing = None
                     st.rerun()
-                else:
-                    # All done!
-                    st.success("✅ All topics analysed successfully!")
-
-            elif st.session_state.currently_analysing:
-                # Show that analysis is in progress
-                current_topic = st.session_state.currently_analysing
-                completed_count = len([s for s in st.session_state.analysis_status.values() if s == "completed"])
-                total_count = len(ANALYSIS_TOPICS)
-                st.info(f"🔄 Analysing topic {completed_count + 1} of {total_count}: {ANALYSIS_TOPICS[current_topic]['description']}")
-
-            elif not pending_topics:
-                # All analysis complete
-                st.success("✅ All topics analysed successfully!")
 
             # Display tabs with dynamic content based on analysis status
             for i, (topic_name, topic_config) in enumerate(ANALYSIS_TOPICS.items()):
@@ -645,9 +703,13 @@ def main():
 
         except Exception as e:
             st.error(f"An error occurred during analysis: {str(e)}")
-            import traceback
-            st.error("Full error traceback:")
-            st.code(traceback.format_exc())
+            st.info("💡 **Troubleshooting tips:**")
+            st.markdown("""
+            - Ensure your Claude API key is correct and has available credits
+            - Check your internet connection
+            - Try uploading a smaller PDF if the document is very large
+            - Contact support if the issue persists
+            """)
 
     else:
         st.info("👆 Please upload a PDF consultation response to begin analysis.")
