@@ -1,0 +1,34 @@
+# Virtual environment
+consultation-env/
+venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Streamlit
+.streamlit/
+
+# API keys and secrets
+.env
+*.key
+config.py
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
