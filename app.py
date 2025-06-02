@@ -36,16 +36,17 @@ ANALYSIS_TOPICS = {
     "Capital Adequacy": {
         "description": "Capital adequacy",
         "search_terms": ["capital adequacy"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding capital adequacy requirements for litigation funders. If this is a consultation response, focus on the respondent's position."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding capital adequacy requirements for litigation funders. If this is a consultation response, focus on the respondent's position. "
+    },
     "Recoverability of Damages": {
         "description": "Recoverability of damages",
         "search_terms": ["recoverable", "recoverability"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the recoverability of damages in litigation funding. If this is a consultation response, focus on the respondent's position."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the recoverability of damages in litigation funding. If this is a consultation response, focus on the respondent's position. "
     },
     "Role of the Court": {
         "description": "Role of the court",
         "search_terms": ["role of the court"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the role of the court in litigation funding matters. If this is a consultation response, focus on the respondent's position. "
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the role of the court in litigation funding matters. If this is a consultation response, focus on the respondent's position."
     }
 }
 
