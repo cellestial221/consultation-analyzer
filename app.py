@@ -2,9 +2,7 @@ import streamlit as st
 import anthropic
 import PyPDF2
 import re
-import io
-from typing import List, Dict, Tuple, Optional
-import time
+from typing import List, Dict, Tuple
 
 # Configuration for analysis topics
 ANALYSIS_TOPICS = {
@@ -71,19 +69,25 @@ class ConsultationAnalyser:
             st.error(f"Error extracting text from PDF: {str(e)}")
             return "", {}
 
+    def find_page_number(self, position: int, text: str) -> int:
+        """Find which page a text position belongs to."""
+        text_before = text[:position]
+        page_markers = list(re.finditer(r'--- PAGE (\d+) ---', text_before))
+        if page_markers:
+            return int(page_markers[-1].group(1))
+        return 1
+
     def search_text_excerpts(self, text: str, page_texts: Dict[int, str], search_terms: List[str], context_chars: int = 300) -> List[Dict]:
         """Search for terms in text and return excerpts with context and page numbers."""
         excerpts = []
         text_lower = text.lower()
 
         for term in search_terms:
-            # Use regex for more flexible matching
             pattern = re.compile(term.lower(), re.IGNORECASE)
             matches = pattern.finditer(text_lower)
 
             for match in matches:
-                # Find which page this excerpt is on
-                page_num = self._find_page_number(match.start(), text)
+                page_num = self.find_page_number(match.start(), text)
 
                 start = max(0, match.start() - context_chars)
                 end = min(len(text), match.end() + context_chars)
@@ -106,183 +110,66 @@ class ConsultationAnalyser:
                     'term': term
                 }
 
-                # Avoid duplicates
                 if not any(e['text'] == highlighted_excerpt for e in excerpts):
                     excerpts.append(excerpt_data)
 
         return excerpts
 
-    def _find_page_number(self, position: int, text: str) -> int:
-        """Find which page a text position belongs to."""
-        # Look backwards from position to find the last page marker
-        text_before = text[:position]
-        page_markers = list(re.finditer(r'--- PAGE (\d+) ---', text_before))
-        if page_markers:
-            return int(page_markers[-1].group(1))
-        return 1  # Default to page 1 if no marker found
-
-    def split_text_into_chunks(self, text: str, max_chunk_size: int = 80000, overlap: int = 5000) -> List[Dict]:
-        """Split long text into overlapping chunks for analysis."""
-        chunks = []
-
-        if len(text) <= max_chunk_size:
-            return [{"text": text, "start_char": 0, "end_char": len(text), "chunk_num": 1}]
-
-        start = 0
-        chunk_num = 1
-
-        while start < len(text):
-            end = min(start + max_chunk_size, len(text))
-
-            # Try to split at paragraph boundary to maintain context
-            if end < len(text):
-                # Look for paragraph break within last 1000 characters
-                search_start = max(end - 1000, start)
-                paragraph_break = text.rfind('\n\n', search_start, end)
-                if paragraph_break > start:
-                    end = paragraph_break
-
-            chunk_text = text[start:end]
-            chunks.append({
-                "text": chunk_text,
-                "start_char": start,
-                "end_char": end,
-                "chunk_num": chunk_num
-            })
-
-            # Move start position with overlap for context continuity
-            start = end - overlap if end < len(text) else end
-            chunk_num += 1
-
-        return chunks
-
     def get_claude_analysis(self, text: str, prompt: str) -> Dict[str, str]:
-        """Get analysis from Claude API with chunked processing for long documents."""
-        max_single_doc_size = 90000  # Conservative limit for single API call
-
+        """Get analysis from Claude API."""
         try:
-            # Check if document needs chunking
-            if len(text) <= max_single_doc_size:
-                # Single document analysis
-                return self._analyse_single_chunk(text, prompt)
-            else:
-                # Chunked analysis for long documents
-                return self._analyse_chunked_document(text, prompt)
+            # Limit text size for API
+            max_chars = 90000
+            if len(text) > max_chars:
+                text = text[:max_chars] + "\n\n[Document truncated due to length...]"
+
+            # Get detailed analysis
+            detailed_message = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1000,
+                temperature=0.1,
+                system="You are an expert legal analyst specialising in litigation funding regulation. Provide clear, concise analysis of consultation responses.",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"{prompt}\n\nDocument content:\n{text}"
+                    }
+                ]
+            )
+
+            # Get formal summary
+            topic_name = prompt.split('views on')[1].split('.')[0] if 'views on' in prompt else 'this topic'
+            summary_prompt = f"""Based on the consultation response document, provide a formal 3-sentence summary about the respondent's position on {topic_name}.
+
+            Format as: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
+
+            Make this suitable for copying into a professional email or report. Quote directly from the document where possible.
+
+            Document content:\n{text}"""
+
+            summary_message = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=300,
+                temperature=0.1,
+                system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": summary_prompt
+                    }
+                ]
+            )
+
+            return {
+                "detailed_analysis": detailed_message.content[0].text,
+                "formal_summary": summary_message.content[0].text
+            }
 
         except Exception as e:
             return {
                 "detailed_analysis": f"Error getting Claude analysis: {str(e)}",
-                "formal_summary": f"Error getting formal summary: {str(e)}",
-                "chunks_processed": 0,
-                "total_chunks": 0
+                "formal_summary": f"Error getting formal summary: {str(e)}"
             }
-
-    def _analyse_single_chunk(self, text: str, prompt: str) -> Dict[str, str]:
-        """Analyse a single chunk of text."""
-        # First get detailed analysis
-        detailed_message = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
-            temperature=0.1,
-            system="You are an expert legal analyst specialising in litigation funding regulation. Provide clear, concise analysis of consultation responses.",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\nDocument content:\n{text}"
-                }
-            ]
-        )
-
-        # Then get formal summary
-        summary_prompt = f"""Based on the consultation response document, provide a formal 3-sentence summary about the respondent's position on {prompt.split('views on')[1].split('.')[0] if 'views on' in prompt else 'this topic'}.
-
-        Format as: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
-
-        Make this suitable for copying into a professional email or report. Quote directly from the document where possible.
-
-        Document content:\n{text}"""
-
-        summary_message = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=300,
-            temperature=0.1,
-            system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
-            messages=[
-                {
-                    "role": "user",
-                    "content": summary_prompt
-                }
-            ]
-        )
-
-        return {
-            "detailed_analysis": detailed_message.content[0].text,
-            "formal_summary": summary_message.content[0].text,
-            "chunks_processed": 1,
-            "total_chunks": 1
-        }
-
-    def _analyse_chunked_document(self, text: str, prompt: str) -> Dict[str, str]:
-        """Analyse a document in chunks and combine results."""
-        chunks = self.split_text_into_chunks(text)
-
-        detailed_analyses = []
-        chunk_summaries = []
-
-        # Analyse each chunk
-        for i, chunk in enumerate(chunks):
-            try:
-                st.write(f"   📄 Processing chunk {chunk['chunk_num']} of {len(chunks)}...")
-
-                chunk_result = self._analyse_single_chunk(chunk["text"], prompt)
-                detailed_analyses.append(f"**Chunk {chunk['chunk_num']}:** {chunk_result['detailed_analysis']}")
-                chunk_summaries.append(chunk_result['formal_summary'])
-
-            except Exception as e:
-                detailed_analyses.append(f"**Chunk {chunk['chunk_num']}:** Error analysing chunk - {str(e)}")
-                chunk_summaries.append("")
-
-        # Combine detailed analyses
-        combined_detailed = "\n\n".join(detailed_analyses)
-
-        # Create unified formal summary from all chunks
-        try:
-            all_summaries = "\n\n".join([s for s in chunk_summaries if s and "Error" not in s])
-
-            if all_summaries:
-                unified_summary_prompt = f"""Based on these analysis summaries from different sections of a consultation response document, create a single, coherent 3-sentence formal summary of the respondent's overall position.
-
-                Format as: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
-
-                Summaries from document sections:
-                {all_summaries}"""
-
-                unified_message = self.client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=300,
-                    temperature=0.1,
-                    system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": unified_summary_prompt
-                        }
-                    ]
-                )
-
-                formal_summary = unified_message.content[0].text
-            else:
-                formal_summary = "Unable to generate formal summary due to analysis errors."
-
-        except Exception as e:
-            formal_summary = f"Error creating unified summary: {str(e)}"
-
-        return {
-            "detailed_analysis": combined_detailed,
-            "formal_summary": formal_summary,
-            "chunks_processed": len(chunks),
-            "total_chunks": len(chunks)
-        }
 
     def analyse_topic(self, text: str, page_texts: Dict[int, str], topic_config: Dict) -> Dict:
         """Analyse a single topic in the document."""
@@ -290,22 +177,15 @@ class ConsultationAnalyser:
             "detailed_analysis": "",
             "formal_summary": "",
             "excerpts": [],
-            "found_terms": [],
-            "chunks_processed": 0,
-            "total_chunks": 0,
-            "was_chunked": False
+            "found_terms": []
         }
 
         # Get Claude analysis
-        with st.spinner(f"Getting AI analysis for {topic_config['description']}..."):
-            analysis_results = self.get_claude_analysis(text, topic_config["prompt"])
-            results["detailed_analysis"] = analysis_results["detailed_analysis"]
-            results["formal_summary"] = analysis_results["formal_summary"]
-            results["chunks_processed"] = analysis_results.get("chunks_processed", 1)
-            results["total_chunks"] = analysis_results.get("total_chunks", 1)
-            results["was_chunked"] = results["total_chunks"] > 1
+        analysis_results = self.get_claude_analysis(text, topic_config["prompt"])
+        results["detailed_analysis"] = analysis_results["detailed_analysis"]
+        results["formal_summary"] = analysis_results["formal_summary"]
 
-        # Search for excerpts (always works on full document)
+        # Search for excerpts
         excerpts = self.search_text_excerpts(text, page_texts, topic_config["search_terms"])
         results["excerpts"] = excerpts
 
@@ -326,18 +206,17 @@ def main():
     st.title("📄 Consultation Response Analyser")
     st.markdown("Analyse PDF consultation responses for key litigation funding topics using AI and text search.")
 
-    # Initialize session state for caching
+    # Initialize session state
     if "analysis_results" not in st.session_state:
         st.session_state.analysis_results = {}
     if "pdf_processed" not in st.session_state:
         st.session_state.pdf_processed = False
     if "current_file" not in st.session_state:
         st.session_state.current_file = None
-
-    # API Key input
     if "api_key" not in st.session_state:
         st.session_state.api_key = ""
 
+    # API Key input
     with st.sidebar:
         st.header("Configuration")
         api_key = st.text_input(
@@ -357,7 +236,7 @@ def main():
     uploaded_file = st.file_uploader(
         "Upload PDF Consultation Response",
         type=['pdf'],
-        help="Upload the PDF consultation response document to analyze"
+        help="Upload the PDF consultation response document to analyse"
     )
 
     if not api_key:
@@ -392,19 +271,10 @@ def main():
 
                 st.success(f"✅ Successfully extracted {len(pdf_text):,} characters from PDF")
 
-                # Check if document will need chunking and warn user
-                max_single_doc_size = 90000
-                if len(pdf_text) > max_single_doc_size:
-                    estimated_chunks = (len(pdf_text) + max_single_doc_size - 1) // max_single_doc_size
-                    st.warning(f"📄 **Large Document Detected**")
-                    st.info(f"""
-                    **Document Size:** {len(pdf_text):,} characters
-                    **Analysis Method:** Chunked processing (document will be split into ~{estimated_chunks} sections)
-                    **Coverage:** Full document will be analysed across all sections
-                    **Text Search:** Covers entire document regardless of size
-
-                    💡 *Chunked analysis ensures comprehensive coverage of large documents while maintaining quality.*
-                    """)
+                # Warn about large documents
+                if len(pdf_text) > 90000:
+                    st.warning(f"📄 **Large Document Detected** ({len(pdf_text):,} characters)")
+                    st.info("Document will be truncated for AI analysis but full text search will work normally.")
             else:
                 pdf_text = st.session_state.pdf_text
                 page_texts = st.session_state.page_texts
@@ -425,8 +295,9 @@ def main():
                 total_topics = len(ANALYSIS_TOPICS)
 
                 for i, (topic_name, topic_config) in enumerate(ANALYSIS_TOPICS.items()):
-                    if topic_name not in st.session_state.analysis_results:
-                        st.write(f"📋 Analysing: {topic_config['description']}")
+                    st.write(f"📋 Analysing: {topic_config['description']}")
+
+                    with st.spinner(f"Getting AI analysis for {topic_config['description']}..."):
                         st.session_state.analysis_results[topic_name] = analyser.analyse_topic(
                             pdf_text, page_texts, topic_config
                         )
@@ -446,20 +317,16 @@ def main():
                 with tabs[i]:
                     st.subheader(f"Analysis: {topic_config['description']}")
 
-                    # Get cached results (should always exist now)
+                    # Get cached results
                     results = st.session_state.analysis_results.get(topic_name, {})
 
                     if not results:
                         st.error(f"No analysis results found for {topic_name}. Please try re-analysing the document.")
                         continue
 
-                    # Overall Assessment (Formal Summary) - prominent at top
+                    # Overall Assessment (Formal Summary)
                     st.markdown("### 📋 Overall Assessment")
-                    if results["formal_summary"] and "Error" not in results["formal_summary"]:
-                        # Show chunk information if document was chunked
-                        if results["was_chunked"]:
-                            st.info(f"📄 *Analysis based on {results['chunks_processed']} document sections*")
-
+                    if results.get("formal_summary") and "Error" not in results["formal_summary"]:
                         st.info(results["formal_summary"])
                         if st.button(f"📋 Copy Assessment", key=f"copy_{topic_name}"):
                             st.code(results["formal_summary"], language=None)
@@ -472,10 +339,7 @@ def main():
 
                     with col1:
                         st.markdown("### 🤖 Detailed Analysis")
-                        if results["detailed_analysis"] and "Error" not in results["detailed_analysis"]:
-                            # Show chunk processing info if relevant
-                            if results["was_chunked"]:
-                                st.caption(f"📄 Processed {results['chunks_processed']} sections of the document")
+                        if results.get("detailed_analysis") and "Error" not in results["detailed_analysis"]:
                             st.markdown(results["detailed_analysis"])
                         else:
                             st.info("No detailed analysis available for this topic.")
@@ -483,67 +347,49 @@ def main():
                     with col2:
                         st.markdown("### 🔍 Search Results")
 
-                        if results["found_terms"]:
+                        if results.get("found_terms"):
                             st.success(f"Found {len(results['found_terms'])} relevant term(s):")
                             for term in results["found_terms"]:
                                 st.markdown(f"- `{term}`")
                         else:
                             st.warning("No search terms found in document.")
 
-                        if results["excerpts"]:
+                        if results.get("excerpts"):
                             st.markdown(f"**{len(results['excerpts'])} excerpt(s) found:**")
                         else:
                             st.info("No excerpts found for this topic.")
 
                     # Display excerpts with page numbers
-                    if results["excerpts"]:
+                    if results.get("excerpts"):
                         st.markdown("### 📝 Document Excerpts")
                         for j, excerpt_data in enumerate(results["excerpts"], 1):
                             with st.expander(f"Excerpt {j} (Page {excerpt_data['page']})"):
                                 st.markdown(f"**Page {excerpt_data['page']}** - Found: `{excerpt_data['term']}`")
                                 st.markdown(excerpt_data['text'])
 
-                    # Add separator
                     st.divider()
 
             # Summary section
             st.header("📊 Summary")
 
-            # Count topics with findings and track chunking
             topics_with_ai_analysis = 0
             topics_with_excerpts = 0
-            total_chunks_used = 0
-            chunked_topics = 0
 
             for topic_name in ANALYSIS_TOPICS.keys():
                 if topic_name in st.session_state.analysis_results:
                     results = st.session_state.analysis_results[topic_name]
-                    if results["detailed_analysis"] and "Error" not in results["detailed_analysis"]:
+                    if results.get("detailed_analysis") and "Error" not in results["detailed_analysis"]:
                         topics_with_ai_analysis += 1
-                    if results["excerpts"]:
+                    if results.get("excerpts"):
                         topics_with_excerpts += 1
-                    if results.get("was_chunked", False):
-                        chunked_topics += 1
-                        total_chunks_used += results.get("chunks_processed", 0)
 
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Topics Analysed", len(ANALYSIS_TOPICS))
             with col2:
                 st.metric("Topics with AI Analysis", topics_with_ai_analysis)
             with col3:
                 st.metric("Topics with Text Excerpts", topics_with_excerpts)
-            with col4:
-                if chunked_topics > 0:
-                    st.metric("Document Sections Processed", total_chunks_used)
-                else:
-                    st.metric("Processing Method", "Single Document")
-
-            # Show document processing summary
-            if chunked_topics > 0:
-                st.info(f"📄 **Large Document Processing:** {chunked_topics} topics were analysed using chunked processing to ensure comprehensive coverage.")
-            else:
-                st.success("📄 **Standard Processing:** Document was analysed as a single unit.")
 
             # Clear cache button
             if st.button("🔄 Re-analyse Document", help="Clear cache and re-run analysis"):
@@ -553,6 +399,7 @@ def main():
 
         except Exception as e:
             st.error(f"An error occurred during analysis: {str(e)}")
+            st.error("Please check that your API key is correct and try again.")
 
     else:
         st.info("👆 Please upload a PDF consultation response to begin analysis.")
