@@ -155,6 +155,166 @@ class ConsultationAnalyser:
             chunk_num += 1
 
         return chunks
+
+    def get_claude_analysis(self, text: str, prompt: str) -> Dict[str, str]:
+        """Get analysis from Claude API with chunked processing for long documents."""
+        max_single_doc_size = 90000  # Conservative limit for single API call
+
+        try:
+            # Check if document needs chunking
+            if len(text) <= max_single_doc_size:
+                # Single document analysis
+                return self._analyse_single_chunk(text, prompt)
+            else:
+                # Chunked analysis for long documents
+                return self._analyse_chunked_document(text, prompt)
+
+        except Exception as e:
+            return {
+                "detailed_analysis": f"Error getting Claude analysis: {str(e)}",
+                "formal_summary": f"Error getting formal summary: {str(e)}",
+                "chunks_processed": 0,
+                "total_chunks": 0
+            }
+
+    def _analyse_single_chunk(self, text: str, prompt: str) -> Dict[str, str]:
+        """Analyse a single chunk of text."""
+        # First get detailed analysis
+        detailed_message = self.client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            temperature=0.1,
+            system="You are an expert legal analyst specialising in litigation funding regulation. Provide clear, concise analysis of consultation responses.",
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"{prompt}\n\nDocument content:\n{text}"
+                }
+            ]
+        )
+
+        # Then get formal summary
+        summary_prompt = f"""Based on the consultation response document, provide a formal 3-sentence summary about the respondent's position on {prompt.split('views on')[1].split('.')[0] if 'views on' in prompt else 'this topic'}.
+
+        Format as: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
+
+        Make this suitable for copying into a professional email or report. Quote directly from the document where possible.
+
+        Document content:\n{text}"""
+
+        summary_message = self.client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            temperature=0.1,
+            system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
+            messages=[
+                {
+                    "role": "user",
+                    "content": summary_prompt
+                }
+            ]
+        )
+
+        return {
+            "detailed_analysis": detailed_message.content[0].text,
+            "formal_summary": summary_message.content[0].text,
+            "chunks_processed": 1,
+            "total_chunks": 1
+        }
+
+    def _analyse_chunked_document(self, text: str, prompt: str) -> Dict[str, str]:
+        """Analyse a document in chunks and combine results."""
+        chunks = self.split_text_into_chunks(text)
+
+        detailed_analyses = []
+        chunk_summaries = []
+
+        # Analyse each chunk
+        for i, chunk in enumerate(chunks):
+            try:
+                st.write(f"   📄 Processing chunk {chunk['chunk_num']} of {len(chunks)}...")
+
+                chunk_result = self._analyse_single_chunk(chunk["text"], prompt)
+                detailed_analyses.append(f"**Chunk {chunk['chunk_num']}:** {chunk_result['detailed_analysis']}")
+                chunk_summaries.append(chunk_result['formal_summary'])
+
+            except Exception as e:
+                detailed_analyses.append(f"**Chunk {chunk['chunk_num']}:** Error analysing chunk - {str(e)}")
+                chunk_summaries.append("")
+
+        # Combine detailed analyses
+        combined_detailed = "\n\n".join(detailed_analyses)
+
+        # Create unified formal summary from all chunks
+        try:
+            all_summaries = "\n\n".join([s for s in chunk_summaries if s and "Error" not in s])
+
+            if all_summaries:
+                unified_summary_prompt = f"""Based on these analysis summaries from different sections of a consultation response document, create a single, coherent 3-sentence formal summary of the respondent's overall position.
+
+                Format as: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
+
+                Summaries from document sections:
+                {all_summaries}"""
+
+                unified_message = self.client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=300,
+                    temperature=0.1,
+                    system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": unified_summary_prompt
+                        }
+                    ]
+                )
+
+                formal_summary = unified_message.content[0].text
+            else:
+                formal_summary = "Unable to generate formal summary due to analysis errors."
+
+        except Exception as e:
+            formal_summary = f"Error creating unified summary: {str(e)}"
+
+        return {
+            "detailed_analysis": combined_detailed,
+            "formal_summary": formal_summary,
+            "chunks_processed": len(chunks),
+            "total_chunks": len(chunks)
+        }
+
+    def analyse_topic(self, text: str, page_texts: Dict[int, str], topic_config: Dict) -> Dict:
+        """Analyse a single topic in the document."""
+        results = {
+            "detailed_analysis": "",
+            "formal_summary": "",
+            "excerpts": [],
+            "found_terms": [],
+            "chunks_processed": 0,
+            "total_chunks": 0,
+            "was_chunked": False
+        }
+
+        # Get Claude analysis
+        with st.spinner(f"Getting AI analysis for {topic_config['description']}..."):
+            analysis_results = self.get_claude_analysis(text, topic_config["prompt"])
+            results["detailed_analysis"] = analysis_results["detailed_analysis"]
+            results["formal_summary"] = analysis_results["formal_summary"]
+            results["chunks_processed"] = analysis_results.get("chunks_processed", 1)
+            results["total_chunks"] = analysis_results.get("total_chunks", 1)
+            results["was_chunked"] = results["total_chunks"] > 1
+
+        # Search for excerpts (always works on full document)
+        excerpts = self.search_text_excerpts(text, page_texts, topic_config["search_terms"])
+        results["excerpts"] = excerpts
+
+        # Track which terms were found
+        for term in topic_config["search_terms"]:
+            if re.search(term.lower(), text.lower()):
+                results["found_terms"].append(term)
+
+        return results
         """Get analysis from Claude API with both detailed analysis and formal summary."""
         try:
             # Truncate text if too long (Claude has token limits)
