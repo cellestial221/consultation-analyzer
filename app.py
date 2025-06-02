@@ -403,6 +403,8 @@ def main():
         if st.session_state.current_file != file_id:
             # New file uploaded, reset cache
             st.session_state.analysis_results = {}
+            st.session_state.analysis_status = {topic: "pending" for topic in ANALYSIS_TOPICS.keys()}
+            st.session_state.currently_analysing = None
             st.session_state.pdf_processed = False
             st.session_state.current_file = file_id
 
@@ -451,90 +453,145 @@ def main():
             # Analysis section
             st.header("🔍 Analysis Results")
 
-            # Run analysis for all topics if not already cached
-            if not st.session_state.analysis_results:
-                st.info("🔄 Analysing all topics...")
-                progress_bar = st.progress(0)
-                total_topics = len(ANALYSIS_TOPICS)
+            # Initialize analysis status tracking
+            if "analysis_status" not in st.session_state:
+                st.session_state.analysis_status = {topic: "pending" for topic in ANALYSIS_TOPICS.keys()}
+            if "currently_analysing" not in st.session_state:
+                st.session_state.currently_analysing = None
 
-                for i, (topic_name, topic_config) in enumerate(ANALYSIS_TOPICS.items()):
-                    if topic_name not in st.session_state.analysis_results:
-                        st.write(f"📋 Analysing: {topic_config['description']}")
-                        st.session_state.analysis_results[topic_name] = analyser.analyse_topic(
-                            pdf_text, page_texts, topic_config
-                        )
-
-                    # Update progress
-                    progress = (i + 1) / total_topics
-                    progress_bar.progress(progress)
-
-                progress_bar.empty()
-                st.success("✅ All topics analysed successfully!")
-
-            # Create tabs for each topic
+            # Create tabs immediately
             tab_names = list(ANALYSIS_TOPICS.keys())
             tabs = st.tabs(tab_names)
 
+            # Check if we need to start/continue analysis
+            pending_topics = [topic for topic, status in st.session_state.analysis_status.items()
+                            if status == "pending" and topic not in st.session_state.analysis_results]
+
+            if pending_topics and st.session_state.currently_analysing is None:
+                # Start analyzing the first pending topic
+                current_topic = pending_topics[0]
+                st.session_state.currently_analysing = current_topic
+                st.session_state.analysis_status[current_topic] = "analyzing"
+
+                # Show progress info
+                completed_count = len([s for s in st.session_state.analysis_status.values() if s == "completed"])
+                total_count = len(ANALYSIS_TOPICS)
+                st.info(f"🔄 Analysing topic {completed_count + 1} of {total_count}: {ANALYSIS_TOPICS[current_topic]['description']}")
+
+                # Run the analysis
+                with st.spinner(f"Getting AI analysis for {ANALYSIS_TOPICS[current_topic]['description']}..."):
+                    st.session_state.analysis_results[current_topic] = analyser.analyse_topic(
+                        pdf_text, page_texts, ANALYSIS_TOPICS[current_topic]
+                    )
+
+                # Mark as completed and clear current
+                st.session_state.analysis_status[current_topic] = "completed"
+                st.session_state.currently_analysing = None
+
+                # Check if more topics to analyze
+                remaining_pending = [topic for topic, status in st.session_state.analysis_status.items()
+                                   if status == "pending"]
+
+                if remaining_pending:
+                    # More to analyze - rerun to continue
+                    st.rerun()
+                else:
+                    # All done!
+                    st.success("✅ All topics analysed successfully!")
+
+            elif st.session_state.currently_analysing:
+                # Show that analysis is in progress
+                current_topic = st.session_state.currently_analysing
+                completed_count = len([s for s in st.session_state.analysis_status.values() if s == "completed"])
+                total_count = len(ANALYSIS_TOPICS)
+                st.info(f"🔄 Analysing topic {completed_count + 1} of {total_count}: {ANALYSIS_TOPICS[current_topic]['description']}")
+
+            elif not pending_topics:
+                # All analysis complete
+                st.success("✅ All topics analysed successfully!")
+
+            # Display tabs with dynamic content based on analysis status
             for i, (topic_name, topic_config) in enumerate(ANALYSIS_TOPICS.items()):
                 with tabs[i]:
                     st.subheader(f"Analysis: {topic_config['description']}")
 
-                    # Get cached results (should always exist now)
-                    results = st.session_state.analysis_results.get(topic_name, {})
+                    # Check analysis status for this topic
+                    status = st.session_state.analysis_status.get(topic_name, "pending")
 
-                    if not results:
-                        st.error(f"No analysis results found for {topic_name}. Please try re-analysing the document.")
-                        continue
+                    if status == "pending":
+                        # Not yet started
+                        st.info("⏳ Waiting in queue for analysis...")
+                        st.markdown("### 📋 Overview")
+                        st.markdown(f"**Topic:** {topic_config['description']}")
+                        st.markdown(f"**Search terms:** {', '.join(topic_config['search_terms'])}")
 
-                    # Overall Assessment (Formal Summary) - prominent at top
-                    st.markdown("### 📋 Overall Assessment")
-                    if results.get("formal_summary") and "Error" not in results["formal_summary"]:
-                        # Show chunk information if document was chunked
-                        if results.get("was_chunked"):
-                            st.info(f"📄 *Analysis based on {results['chunks_processed']} document sections*")
+                    elif status == "analyzing" or topic_name == st.session_state.currently_analysing:
+                        # Currently being analyzed
+                        st.warning("🔄 Analysis in progress...")
+                        with st.spinner("Getting AI analysis..."):
+                            st.markdown("### 📋 Overview")
+                            st.markdown(f"**Topic:** {topic_config['description']}")
+                            st.markdown(f"**Search terms:** {', '.join(topic_config['search_terms'])}")
 
-                        st.info(results["formal_summary"])
-                        if st.button(f"📋 Copy Assessment", key=f"copy_{topic_name}"):
-                            st.code(results["formal_summary"], language=None)
-                            st.success("Assessment ready to copy!")
-                    else:
-                        st.warning("No formal assessment available for this topic.")
+                    elif status == "completed" and topic_name in st.session_state.analysis_results:
+                        # Analysis complete - show results
+                        st.success("✅ Analysis complete!")
 
-                    # Display results in columns
-                    col1, col2 = st.columns([2, 1])
+                        results = st.session_state.analysis_results[topic_name]
 
-                    with col1:
-                        st.markdown("### 🤖 Detailed Analysis")
-                        if results.get("detailed_analysis") and "Error" not in results["detailed_analysis"]:
-                            # Show chunk processing info if relevant
+                        # Overall Assessment (Formal Summary) - prominent at top
+                        st.markdown("### 📋 Overall Assessment")
+                        if results.get("formal_summary") and "Error" not in results["formal_summary"]:
+                            # Show chunk information if document was chunked
                             if results.get("was_chunked"):
-                                st.caption(f"📄 Processed {results['chunks_processed']} sections of the document")
-                            st.markdown(results["detailed_analysis"])
+                                st.info(f"📄 *Analysis based on {results['chunks_processed']} document sections*")
+
+                            st.info(results["formal_summary"])
+                            if st.button(f"📋 Copy Assessment", key=f"copy_{topic_name}"):
+                                st.code(results["formal_summary"], language=None)
+                                st.success("Assessment ready to copy!")
                         else:
-                            st.info("No detailed analysis available for this topic.")
+                            st.warning("No formal assessment available for this topic.")
 
-                    with col2:
-                        st.markdown("### 🔍 Search Results")
+                        # Display results in columns
+                        col1, col2 = st.columns([2, 1])
 
-                        if results.get("found_terms"):
-                            st.success(f"Found {len(results['found_terms'])} relevant term(s):")
-                            for term in results["found_terms"]:
-                                st.markdown(f"- `{term}`")
-                        else:
-                            st.warning("No search terms found in document.")
+                        with col1:
+                            st.markdown("### 🤖 Detailed Analysis")
+                            if results.get("detailed_analysis") and "Error" not in results["detailed_analysis"]:
+                                # Show chunk processing info if relevant
+                                if results.get("was_chunked"):
+                                    st.caption(f"📄 Processed {results['chunks_processed']} sections of the document")
+                                st.markdown(results["detailed_analysis"])
+                            else:
+                                st.info("No detailed analysis available for this topic.")
 
+                        with col2:
+                            st.markdown("### 🔍 Search Results")
+
+                            if results.get("found_terms"):
+                                st.success(f"Found {len(results['found_terms'])} relevant term(s):")
+                                for term in results["found_terms"]:
+                                    st.markdown(f"- `{term}`")
+                            else:
+                                st.warning("No search terms found in document.")
+
+                            if results.get("excerpts"):
+                                st.markdown(f"**{len(results['excerpts'])} excerpt(s) found:**")
+                            else:
+                                st.info("No excerpts found for this topic.")
+
+                        # Display excerpts with page numbers
                         if results.get("excerpts"):
-                            st.markdown(f"**{len(results['excerpts'])} excerpt(s) found:**")
-                        else:
-                            st.info("No excerpts found for this topic.")
+                            st.markdown("### 📝 Document Excerpts")
+                            for j, excerpt_data in enumerate(results["excerpts"], 1):
+                                with st.expander(f"Excerpt {j} (Page {excerpt_data['page']})"):
+                                    st.markdown(f"**Page {excerpt_data['page']}** - Found: `{excerpt_data['term']}`")
+                                    st.markdown(excerpt_data['text'])
 
-                    # Display excerpts with page numbers
-                    if results.get("excerpts"):
-                        st.markdown("### 📝 Document Excerpts")
-                        for j, excerpt_data in enumerate(results["excerpts"], 1):
-                            with st.expander(f"Excerpt {j} (Page {excerpt_data['page']})"):
-                                st.markdown(f"**Page {excerpt_data['page']}** - Found: `{excerpt_data['term']}`")
-                                st.markdown(excerpt_data['text'])
+                    else:
+                        # Fallback for unexpected status
+                        st.error(f"Unexpected analysis status: {status}")
 
                     # Add separator
                     st.divider()
@@ -581,6 +638,8 @@ def main():
             # Clear cache button
             if st.button("🔄 Re-analyse Document", help="Clear cache and re-run analysis"):
                 st.session_state.analysis_results = {}
+                st.session_state.analysis_status = {topic: "pending" for topic in ANALYSIS_TOPICS.keys()}
+                st.session_state.currently_analysing = None
                 st.session_state.pdf_processed = False
                 st.rerun()
 
