@@ -315,91 +315,6 @@ class ConsultationAnalyser:
                 results["found_terms"].append(term)
 
         return results
-        """Get analysis from Claude API with both detailed analysis and formal summary."""
-        try:
-            # Truncate text if too long (Claude has token limits)
-            max_chars = 100000  # Approximate limit to stay within token constraints
-            if len(text) > max_chars:
-                text = text[:max_chars] + "\n\n[Document truncated due to length...]"
-
-            # First get detailed analysis
-            detailed_message = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1000,
-                temperature=0.1,
-                system="You are an expert legal analyst specialising in litigation funding regulation. Provide clear, concise analysis of consultation responses.",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"{prompt}\n\nDocument content:\n{text}"
-                    }
-                ]
-            )
-
-            # Then get formal summary
-            summary_prompt = f"""Based on the consultation response document, provide a formal 3-sentence summary about the respondent's position on {prompt.split('views on')[1].split('.')[0] if 'views on' in prompt else 'this topic'}.
-
-            Format as: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
-
-            Make this suitable for copying into a professional email or report. Quote directly from the document where possible.
-
-            Document content:\n{text}"""
-
-            summary_message = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=300,
-                temperature=0.1,
-                system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": summary_prompt
-                    }
-                ]
-            )
-
-            return {
-                "detailed_analysis": detailed_message.content[0].text,
-                "formal_summary": summary_message.content[0].text
-            }
-
-        except Exception as e:
-            return {
-                "detailed_analysis": f"Error getting Claude analysis: {str(e)}",
-                "formal_summary": f"Error getting formal summary: {str(e)}"
-            }
-
-    def analyse_topic(self, text: str, page_texts: Dict[int, str], topic_config: Dict) -> Dict:
-        """Analyse a single topic in the document."""
-        results = {
-            "detailed_analysis": "",
-            "formal_summary": "",
-            "excerpts": [],
-            "found_terms": [],
-            "chunks_processed": 0,
-            "total_chunks": 0,
-            "was_chunked": False
-        }
-
-        # Get Claude analysis
-        with st.spinner(f"Getting AI analysis for {topic_config['description']}..."):
-            analysis_results = self.get_claude_analysis(text, topic_config["prompt"])
-            results["detailed_analysis"] = analysis_results["detailed_analysis"]
-            results["formal_summary"] = analysis_results["formal_summary"]
-            results["chunks_processed"] = analysis_results.get("chunks_processed", 1)
-            results["total_chunks"] = analysis_results.get("total_chunks", 1)
-            results["was_chunked"] = results["total_chunks"] > 1
-
-        # Search for excerpts (always works on full document)
-        excerpts = self.search_text_excerpts(text, page_texts, topic_config["search_terms"])
-        results["excerpts"] = excerpts
-
-        # Track which terms were found
-        for term in topic_config["search_terms"]:
-            if re.search(term.lower(), text.lower()):
-                results["found_terms"].append(term)
-
-        return results
 
 def main():
     st.set_page_config(
@@ -410,6 +325,39 @@ def main():
 
     st.title("📄 Consultation Response Analyser")
     st.markdown("Analyse PDF consultation responses for key litigation funding topics using AI and text search.")
+
+    # Debug section - Add this at the top
+    with st.expander("🔧 Debug Information", expanded=False):
+        if st.button("🔍 Test Class Methods"):
+            try:
+                test_analyser = ConsultationAnalyser("test-key")
+                methods = [method for method in dir(test_analyser) if not method.startswith('__')]
+                st.write("**Available methods:**", methods)
+
+                # Check specific methods
+                required_methods = ['get_claude_analysis', 'analyse_topic', 'extract_text_from_pdf']
+                for method in required_methods:
+                    if hasattr(test_analyser, method):
+                        st.success(f"✅ `{method}` method exists!")
+                    else:
+                        st.error(f"❌ `{method}` method missing!")
+
+                # Test method call
+                if hasattr(test_analyser, 'get_claude_analysis'):
+                    st.info("🧪 Testing method call...")
+                    try:
+                        # This should work even with a fake API key
+                        result = test_analyser.get_claude_analysis("test text", "test prompt")
+                        st.success("✅ Method callable (though API call failed as expected)")
+                    except AttributeError as e:
+                        st.error(f"❌ Method call failed: {e}")
+                    except Exception as e:
+                        st.info(f"ℹ️ Method exists but API call failed (expected): {type(e).__name__}")
+
+            except Exception as e:
+                st.error(f"Debug error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
 
     # Initialize session state for caching
     if "analysis_results" not in st.session_state:
@@ -540,9 +488,9 @@ def main():
 
                     # Overall Assessment (Formal Summary) - prominent at top
                     st.markdown("### 📋 Overall Assessment")
-                    if results["formal_summary"] and "Error" not in results["formal_summary"]:
+                    if results.get("formal_summary") and "Error" not in results["formal_summary"]:
                         # Show chunk information if document was chunked
-                        if results["was_chunked"]:
+                        if results.get("was_chunked"):
                             st.info(f"📄 *Analysis based on {results['chunks_processed']} document sections*")
 
                         st.info(results["formal_summary"])
@@ -557,9 +505,9 @@ def main():
 
                     with col1:
                         st.markdown("### 🤖 Detailed Analysis")
-                        if results["detailed_analysis"] and "Error" not in results["detailed_analysis"]:
+                        if results.get("detailed_analysis") and "Error" not in results["detailed_analysis"]:
                             # Show chunk processing info if relevant
-                            if results["was_chunked"]:
+                            if results.get("was_chunked"):
                                 st.caption(f"📄 Processed {results['chunks_processed']} sections of the document")
                             st.markdown(results["detailed_analysis"])
                         else:
@@ -568,20 +516,20 @@ def main():
                     with col2:
                         st.markdown("### 🔍 Search Results")
 
-                        if results["found_terms"]:
+                        if results.get("found_terms"):
                             st.success(f"Found {len(results['found_terms'])} relevant term(s):")
                             for term in results["found_terms"]:
                                 st.markdown(f"- `{term}`")
                         else:
                             st.warning("No search terms found in document.")
 
-                        if results["excerpts"]:
+                        if results.get("excerpts"):
                             st.markdown(f"**{len(results['excerpts'])} excerpt(s) found:**")
                         else:
                             st.info("No excerpts found for this topic.")
 
                     # Display excerpts with page numbers
-                    if results["excerpts"]:
+                    if results.get("excerpts"):
                         st.markdown("### 📝 Document Excerpts")
                         for j, excerpt_data in enumerate(results["excerpts"], 1):
                             with st.expander(f"Excerpt {j} (Page {excerpt_data['page']})"):
@@ -603,9 +551,9 @@ def main():
             for topic_name in ANALYSIS_TOPICS.keys():
                 if topic_name in st.session_state.analysis_results:
                     results = st.session_state.analysis_results[topic_name]
-                    if results["detailed_analysis"] and "Error" not in results["detailed_analysis"]:
+                    if results.get("detailed_analysis") and "Error" not in results["detailed_analysis"]:
                         topics_with_ai_analysis += 1
-                    if results["excerpts"]:
+                    if results.get("excerpts"):
                         topics_with_excerpts += 1
                     if results.get("was_chunked", False):
                         chunked_topics += 1
@@ -638,6 +586,9 @@ def main():
 
         except Exception as e:
             st.error(f"An error occurred during analysis: {str(e)}")
+            import traceback
+            st.error("Full error traceback:")
+            st.code(traceback.format_exc())
 
     else:
         st.info("👆 Please upload a PDF consultation response to begin analysis.")
