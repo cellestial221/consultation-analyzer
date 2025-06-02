@@ -11,42 +11,42 @@ ANALYSIS_TOPICS = {
     "PACCAR": {
         "description": "2023 Supreme Court's PACCAR ruling",
         "search_terms": ["PACCAR"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on the 2023 Supreme Court's PACCAR ruling. Focus on their position, concerns, and recommendations related to this ruling."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the 2023 Supreme Court's PACCAR ruling. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     },
     "ALF Code": {
         "description": "The ALF Code",
         "search_terms": ["ALF Code"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on the ALF Code. Focus on their position, concerns, and recommendations related to the ALF Code."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the ALF Code. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     },
     "Funding Regulation": {
         "description": "Funding regulation",
         "search_terms": ["regulation.*funding", "funding.*regulation"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on funding regulation. Focus on their position, concerns, and recommendations related to how litigation funding should be regulated."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding litigation funding regulation. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     },
     "Transparency/Disclosure": {
         "description": "Transparency/disclosure of funding arrangements",
         "search_terms": ["transparency", "disclosure"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on transparency and disclosure of funding arrangements. Focus on their position, concerns, and recommendations related to disclosure requirements."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding transparency and disclosure of funding arrangements. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     },
     "Caps on Returns": {
         "description": "Caps on returns",
         "search_terms": ["caps"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on caps on returns for litigation funders. Focus on their position, concerns, and recommendations related to return limitations."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding caps on returns for litigation funders. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     },
     "Capital Adequacy": {
         "description": "Capital adequacy",
         "search_terms": ["capital adequacy"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on capital adequacy requirements for litigation funders. Focus on their position, concerns, and recommendations related to capital requirements."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding capital adequacy requirements for litigation funders. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     },
     "Recoverability of Damages": {
         "description": "Recoverability of damages",
         "search_terms": ["recoverable", "recoverability"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on the recoverability of damages in litigation funding. Focus on their position, concerns, and recommendations related to damage recovery."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the recoverability of damages in litigation funding. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     },
     "Role of the Court": {
         "description": "Role of the court",
         "search_terms": ["role of the court"],
-        "prompt": "Analyse this consultation response document and provide a summary of the respondent's views on the role of the court in litigation funding matters. Focus on their position, concerns, and recommendations related to judicial oversight and involvement."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the role of the court in litigation funding matters. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
     }
 }
 
@@ -184,7 +184,7 @@ class ConsultationAnalyser:
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
             temperature=0.1,
-            system="You are an expert legal analyst specialising in litigation funding regulation. Provide clear, concise analysis of consultation responses.",
+            system="You are an expert legal analyst specialising in litigation funding regulation. Provide clear, concise analysis of both consultation responses and consultation outcome documents. Adapt your analysis based on the document type.",
             messages=[
                 {
                     "role": "user",
@@ -206,7 +206,7 @@ class ConsultationAnalyser:
             model="claude-sonnet-4-20250514",
             max_tokens=300,
             temperature=0.1,
-            system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
+            system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications. Adapt the format based on whether the document is a consultation response or an outcome report.",
             messages=[
                 {
                     "role": "user",
@@ -250,9 +250,11 @@ class ConsultationAnalyser:
             all_summaries = "\n\n".join([s for s in chunk_summaries if s and "Error" not in s])
 
             if all_summaries:
-                unified_summary_prompt = f"""Based on these analysis summaries from different sections of a consultation response document, create a single, coherent 3-sentence formal summary of the respondent's overall position.
+                unified_summary_prompt = f"""Based on these analysis summaries from different sections of a document, create a single, coherent 3-sentence formal summary of the overall position, findings, or recommendations.
 
-                Format as: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
+                First determine if this is a consultation response or outcome document, then format accordingly:
+                - For consultation responses: "The [respondent name] outlines that [key position]. [Main concern/recommendation]. [Conclusion/overall stance]."
+                - For outcome reports: "The [reviewing body] concludes that [key finding]. [Main recommendation/decision]. [Overall conclusion/next steps]."
 
                 Summaries from document sections:
                 {all_summaries}"""
@@ -261,7 +263,7 @@ class ConsultationAnalyser:
                     model="claude-sonnet-4-20250514",
                     max_tokens=300,
                     temperature=0.1,
-                    system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications.",
+                    system="You are an expert legal analyst. Provide formal, professional summaries suitable for business communications. Adapt the format based on whether the document is a consultation response or an outcome report.",
                     messages=[
                         {
                             "role": "user",
@@ -323,7 +325,7 @@ def main():
     )
 
     st.title("📄 Consultation Response Analyser")
-    st.markdown("Analyse PDF consultation responses for key litigation funding topics using AI and text search.")
+    st.markdown("Analyse PDF consultation responses and consultation outcome documents for key litigation funding topics using AI and text search.")
 
     # Debug section - Add this at the top
     with st.expander("🔧 Debug Information", expanded=False):
@@ -387,9 +389,9 @@ def main():
 
     # File upload
     uploaded_file = st.file_uploader(
-        "Upload PDF Consultation Response",
+        "Upload PDF Document",
         type=['pdf'],
-        help="Upload the PDF consultation response document to analyze"
+        help="Upload a PDF consultation response or consultation outcome document to analyse"
     )
 
     if not api_key:
