@@ -503,6 +503,26 @@ def main():
             # Analysis section
             st.header("🔍 Analysis Results")
 
+            # Run analysis for all topics if not already cached
+            if not st.session_state.analysis_results:
+                st.info("🔄 Analysing all topics...")
+                progress_bar = st.progress(0)
+                total_topics = len(ANALYSIS_TOPICS)
+
+                for i, (topic_name, topic_config) in enumerate(ANALYSIS_TOPICS.items()):
+                    if topic_name not in st.session_state.analysis_results:
+                        st.write(f"📋 Analysing: {topic_config['description']}")
+                        st.session_state.analysis_results[topic_name] = analyser.analyse_topic(
+                            pdf_text, page_texts, topic_config
+                        )
+
+                    # Update progress
+                    progress = (i + 1) / total_topics
+                    progress_bar.progress(progress)
+
+                progress_bar.empty()
+                st.success("✅ All topics analysed successfully!")
+
             # Create tabs for each topic
             tab_names = list(ANALYSIS_TOPICS.keys())
             tabs = st.tabs(tab_names)
@@ -511,15 +531,12 @@ def main():
                 with tabs[i]:
                     st.subheader(f"Analysis: {topic_config['description']}")
 
-                    # Check if analysis is already cached
-                    if topic_name not in st.session_state.analysis_results:
-                        # Run analysis and cache results
-                        st.session_state.analysis_results[topic_name] = analyser.analyse_topic(
-                            pdf_text, page_texts, topic_config
-                        )
+                    # Get cached results (should always exist now)
+                    results = st.session_state.analysis_results.get(topic_name, {})
 
-                    # Get cached results
-                    results = st.session_state.analysis_results[topic_name]
+                    if not results:
+                        st.error(f"No analysis results found for {topic_name}. Please try re-analysing the document.")
+                        continue
 
                     # Overall Assessment (Formal Summary) - prominent at top
                     st.markdown("### 📋 Overall Assessment")
