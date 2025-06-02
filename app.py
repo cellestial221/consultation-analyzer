@@ -11,42 +11,41 @@ ANALYSIS_TOPICS = {
     "PACCAR": {
         "description": "2023 Supreme Court's PACCAR ruling",
         "search_terms": ["PACCAR"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the 2023 Supreme Court's PACCAR ruling. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the 2023 Supreme Court's PACCAR ruling. If this is a consultation response, focus on the respondent's position."
     },
     "ALF Code": {
         "description": "The ALF Code",
         "search_terms": ["ALF Code"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the ALF Code. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the ALF Code. If this is a consultation response, focus on the respondent's position. "
     },
     "Funding Regulation": {
         "description": "Funding regulation",
         "search_terms": ["regulation.*funding", "funding.*regulation"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding litigation funding regulation. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding litigation funding regulation. If this is a consultation response, focus on the respondent's position. "
     },
     "Transparency/Disclosure": {
         "description": "Transparency/disclosure of funding arrangements",
         "search_terms": ["transparency", "disclosure"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding transparency and disclosure of funding arrangements. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding transparency and disclosure of funding arrangements. If this is a consultation response, focus on the respondent's position."
     },
     "Caps on Returns": {
         "description": "Caps on returns",
         "search_terms": ["caps"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding caps on returns for litigation funders. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding caps on returns for litigation funders. If this is a consultation response, focus on the respondent's position. "
     },
     "Capital Adequacy": {
         "description": "Capital adequacy",
         "search_terms": ["capital adequacy"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding capital adequacy requirements for litigation funders. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
-    },
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding capital adequacy requirements for litigation funders. If this is a consultation response, focus on the respondent's position."
     "Recoverability of Damages": {
         "description": "Recoverability of damages",
         "search_terms": ["recoverable", "recoverability"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the recoverability of damages in litigation funding. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the recoverability of damages in litigation funding. If this is a consultation response, focus on the respondent's position."
     },
     "Role of the Court": {
         "description": "Role of the court",
         "search_terms": ["role of the court"],
-        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the role of the court in litigation funding matters. If this is a consultation response, focus on the respondent's position. If this is a consultation outcome or final report, focus on the conclusions and recommendations of the reviewing body."
+        "prompt": "Analyse this document and provide a summary of the views, findings, or recommendations regarding the role of the court in litigation funding matters. If this is a consultation response, focus on the respondent's position. "
     }
 }
 
